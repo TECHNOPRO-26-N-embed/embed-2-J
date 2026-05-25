@@ -1,6 +1,6 @@
 # 詳細設計書 — 組込み開発実習
 
-<!-- 作成者: あなたの名前 / 日付: YYYY-MM-DD / グループ: 〇-〇 -->
+<!-- 作成者: 飯塚 光希 / 日付: 2026-05-25 / グループ: 2-J -->
 
 > **このドキュメントの目的**
 > 基本設計書（basic_design.md）で「**どのような構造で作るか**」を決めました。
@@ -19,146 +19,150 @@
 
 | 項目 | basic_design.md から転記 |
 |:--|:--|
-| 作品タイトル | |
-| 状態の種類（1-2 状態遷移から） | |
-| 実装する関数の数（2-2 関数一覧から） | 　個 |
-| グローバル変数の合計バイト数（2-1 SRAM確認から） | 　B |
+| 作品タイトル |音楽が流れるボタン|
+| LCDディスプレイ型番 |LCM1602A（I2Cバックパック付）|
+| 状態の種類（1-2 状態遷移から） |待機中（STATE_WAIT）、再生中（STATE_PLAY）|
+| 実装する関数の数（2-2 関数一覧から） |8個（setup, loop, readButtons, updateLED, playMelody, updateLCD, togglePlay, changeTrack, playNextTrack）|
+| グローバル変数の合計バイト数（2-1 SRAM確認から） |（概算）約50B＋曲データ配列のサイズ|
 
 ---
 
 ## 1. グローバル変数・定数の設計
 
 > ※ 基本設計書（2-1 データ設計）をもとに、**型と初期値まで**決めます。
-> ここで設計した変数は、この後の関数設計でそのまま使います。
 
 ```
-【ピン定義】（basic_design.md 3-1 から転記）
-  PIN_BUTTON    = 2    // タクトスイッチ（INPUT_PULLUP）
-  PIN_LED_RED   = 9    // 赤LED
-  PIN_LED_GREEN = 10   // 緑LED
-  PIN_BUZZER    = 11   // パッシブブザー
+【ピン定義】
+  PIN_BUTTON1   = 2     // タクトスイッチ①（再生/停止）
+  PIN_BUTTON2   = 3     // タクトスイッチ②（曲切替）
+  PIN_LED       = 9     // LED
+  PIN_BUZZER    = 10    // パッシブブザー
+  PIN_LCD_SDA   = A4    // LCD通信(SDA)
+  PIN_LCD_SCL   = A5    // LCD通信(SCL)
 
-【状態管理】（basic_design.md 1-2 の状態名から転記）
-  currentState  : int = 0   // 0:待機 1:動作中 2:完了 3:エラー
+【状態管理】
+  typedef enum {
+      STATE_WAIT = 0,  // 待機中
+      STATE_PLAY = 1   // 再生中
+  } SystemState;
 
-【タイマー（millis()用）】（basic_design.md 2-3 から転記）
-  lastMillis_LED    : unsigned long = 0
-  lastMillis_Sensor : unsigned long = 0
+  currentState : SystemState = STATE_WAIT; // 初期状態は待機
 
-【センサー・入力値】（basic_design.md 2-1 から転記）
-  sensorValue   : int  = 0
-  buttonState   : bool = false
+【曲データ管理】
+  TrackList[MAX_TRACKS][]         // 曲データ配列（int配列や構造体など）
+  TrackName[MAX_TRACKS][文字数]   // 曲名配列（任意機能対応の場合）
+  TrackCount     : int = 3       // 総曲数（例）
+  TrackID        : int = 0       // 現在選択中の曲番号（0 start）
 
-【その他のフラグ・カウンター】
-  （自分のものを追加）
+【LED・ブザー出力状態】
+  led_State      : bool = false  // LED ON/OFF
+  buzzer_State   : bool = false  // ブザーON/OFF
+
+【ボタン状態・デバウンス判定】
+  button1_State     : bool = false      // ボタン1押下状態
+  button2_State     : bool = false      // ボタン2押下状態
+  Push_button1      : unsigned long = 0 // ボタン1前回確定押下時刻
+  Push_button2      : unsigned long = 0 // ボタン2前回確定押下時刻
+  lastDebounceTime1 : unsigned long = 0 // ボタン1デバウンス用
+  lastDebounceTime2 : unsigned long = 0 // ボタン2デバウンス用
+  DEBOUNCE_DELAY    : const int = 100   // チャタリング判定100ms
+
+【LCD表示関連】
+  Display_Text[文字数]    // LCD表示テキストバッファ
 ```
 
 ---
 
 ## 2. 各関数の詳細設計
 
-> ※ 基本設計書（2-2 関数一覧）で定義した各関数の「中身」を設計します。
-> **疑似コード**（日本語＋処理の流れ）で書いてください。実際のC++コードは書かなくてOKです。
-
 ---
 
 ### `setup()` — 初期化処理
 
-```
-【処理の流れ】
-1. ピンモードを設定する
-   - PIN_BUTTON  → INPUT_PULLUP
-   - PIN_LED_*   → OUTPUT
-   - PIN_BUZZER  → OUTPUT
-
-2. ライブラリの初期化（使うものだけ）
-   - 例: lcd.begin(16, 2)
-   - 例: servo.attach(PIN_SERVO)
-
-3. Serial.begin(9600)（デバッグ用）
-
-4. 起動確認（任意）: 緑LEDを1秒点灯して消灯
-```
-
-**↓ 自分の setup() を設計してください**
-```
-【処理の流れ】
-1.
-2.
-3.
-```
+- ボタン・LED・ブザーのピンモード設定（INPUT_PULLUP, OUTPUT）
+- LCD（LCM1602A/I2C）およびI2C通信の初期化
+- 曲データや曲名配列・曲数の初期化
+- 主要なグローバル変数の値をリセット
+- LCDに初期メッセージ（例：一番目の曲名、状態）を表示
+- （任意）Serial.begin(9600)
+- （任意）LEDで起動確認
 
 ---
 
 ### `loop()` — メインループ
 
-> ※ loop() は「状態ごとに何をするか」だけ書く。細かい処理は各関数に任せる。
-
-```
-【処理の流れ】
-
-＜毎ループ実行すること＞
-  - 入力を読む（readButton(), readSensor() などを呼ぶ）
-  - 現在時刻を取得: now = millis()
-
-＜currentState が 0（待機中）のとき＞
-  - センサー値を監視する
-  - 検知条件を満たしたら → currentState = 1
-
-＜currentState が 1（動作中）のとき＞
-  - メイン処理を行う
-  - 終了条件を満たしたら → currentState = 2
-
-＜currentState が 2（完了）のとき＞
-  - 完了表示をする
-  - リセットボタンが押されたら → currentState = 0
-
-＜currentState が 3（エラー）のとき＞
-  - エラー表示をする / リセットを待つ
-```
-
-**↓ 自分の loop() を設計してください**
-```
-【処理の流れ】
-
-＜毎ループ実行すること＞
-
-
-＜currentState が 　　 のとき＞
-
-
-＜currentState が 　　 のとき＞
-
-
-＜currentState が 　　 のとき＞
-
-```
+- readButtons()でボタン入力状態を読取、必要なフラグ更新
+- updateLED(), updateLCD()で出力を反映
+- 状態による分岐
+  - STATE_WAIT時
+    - ボタン1押下でtogglePlay()→STATE_PLAY遷移、演奏開始
+    - ボタン2押下でchangeTrack()、選曲番号を更新
+  - STATE_PLAY時
+    - playMelody()で現在曲を再生（進行状況管理）
+    - 曲終端ならplayNextTrack()
+    - 再生中にボタン1押下→togglePlay()で停止
+    - ボタン2押下でchangeTrack()即新曲へ
 
 ---
 
-### （関数ごとに以下のブロックをコピーして追加してください）
+### `updateLED()`
 
-> ※ 基本設計書 2-2 の関数一覧に記載した関数を1つずつ設計します。
+- 状態currentState==STATE_PLAYでLED点灯、それ以外で消灯
+- 状態変化時はdigitalWriteでON/OFF指令
+- LED異常時はスキップ
 
 ---
 
-### `関数名()` — （役割を1行で書く）
+### `updateLCD()`
 
-**basic_design.md 2-2 との対応：** （基本設計書の関数一覧の説明を転記）
+- TrackID・currentStateの内容をもとに曲名や再生/待機表示を作成
+- LCM1602A用APIで表示反映
+- 曲変更や状態遷移では最新表示へ自動反映
+- LCDの書き込みエラーは再描画/スキップ
 
-**引数：** `引数名`（型）: 何の値か
+---
 
-**戻り値：** 型（なしの場合は void）
+### `readButtons()`
 
-```
-【処理の流れ】
-1.
-2.
-3.
+- digitalReadでボタン状態取得
+- millis利用でデバウンス（100ms未満は無視）
+- 押下/リリースイベントは明示（buttonX_Stateで管理）
 
-【エラー・異常ケース】
-- 異常な値が来た場合:
-```
+---
+
+### `togglePlay()`
+
+- STATE_WAIT ⇔ STATE_PLAYトグル遷移
+- 状態遷移後、LED/LCD表示更新
+- 再生開始時にTrackID範囲外なら0へ戻す
+- 異常値は待機（STATE_WAIT）へ
+
+---
+
+### `changeTrack()`
+
+- TrackIDを+1（次曲）し、TrackCount以上なら0に戻すサイクル
+- STATE_PLAY中は現曲停止し次曲再生
+- LCD表示も同期
+- 曲なし、TrackCount=0では何もしない
+
+---
+
+### `playMelody()`
+
+- TrackIDで指定された曲データを曲進行に従いブザーで再生
+- 曲進行管理用カウンタ・タイマー使用
+- 再生完了でplayNextTrack()呼ぶ
+- 再生中もボタンイベントによる割込み可能
+
+---
+
+### `playNextTrack()`
+
+- TrackIDを+1
+- TrackCount未満なら次曲playMelody()へ
+- 最後の曲後はSTATE_WAITへ遷移しTrackID=0へリセット、各表示更新
+- 曲データなし（異常時）はSTATE_WAIT強制復帰
 
 ---
 
@@ -166,135 +170,49 @@
 
 ### 3-1. チャタリング防止（デバウンス処理）
 
-> ※ ボタンを使う場合は必ず設計してください。
-
-```
-【考え方】
-  ボタンが押されたとき、50ms 以内の連続入力は「同じ1回の押下」として無視する。
-
-【処理の流れ】
-  1. ボタンのデジタル値を読む（digitalRead）
-  2. 前回確定した時刻（lastDebounceTime）からの経過時間を計算する
-  3. 経過時間 < DEBOUNCE_DELAY（例: 50ms）→ 無視する
-  4. 経過時間 ≥ DEBOUNCE_DELAY → ボタンの状態として確定する
-  5. lastDebounceTime を更新する
-
-【必要な変数（Section 1 に追加済みか確認）】
-  lastDebounceTime : unsigned long   // 前回確定した時刻
-  DEBOUNCE_DELAY   : const int = 50  // チャタリング判定時間（ms）
-```
+- ボタン押下時は100ms未満の連続入力（ノイズ/チャタリング）を排除
+- millisで前回確定時刻と比較、経過時間で有効化
+- 各ボタン独立デバウンス管理
 
 ---
 
-### 3-2. millis() を使ったタイマー管理
+### 3-2. millis()によるタイミング管理
 
-```
-【考え方】
-  「前回実行した時刻」を記録しておき、「今の時刻 − 前回時刻 ≥ 周期」なら実行する。
-
-【処理の流れ（例: LED点滅）】
-  1. now = millis()
-  2. now - lastMillis_LED >= LED_INTERVAL かどうか確認
-  3. 条件を満たした場合: LEDのON/OFFを切り替え、lastMillis_LED = now
-  4. 条件を満たさない場合: 何もしない（次のループで再チェック）
-
-【自分のシステムで millis() を使う処理】
-  （basic_design.md 2-3 のタイミング設計から転記して具体化する）
-```
+- チャタリング処理・曲時間制御はすべてmillis照合
+- ブロッキングdelayの多用を避ける（曲ごとにブロック時のみ利用可）
 
 ---
 
-### 3-3. その他の重要ロジック（任意）
+### 3-3. サイクル曲・割込み処理
 
-> **【任意】** 複雑なロジックがある場合のみ記入してください。
-> 例：「距離に応じたLED点灯パターン」「ゲームの衝突判定」「温度の閾値判定」
-
-```
-【処理の流れ】
-1.
-2.
-3.
-
-【入力値と出力値の関係】
-
-```
+- changeTrack()はSTATE_WAIT/STATE_PLAYどちらも呼べる（動的に対応）
+- 曲終端時のみplayNextTrack()を呼ぶ設計でTrackID=0復帰も明示
+- 再生/停止/曲変更すべてでLED・LCDも正しく同期
 
 ---
 
 ## 4. デバッグ出力計画（任意）
 
-> **【任意】** 関数設計（Section 2）と並行して記入すると効果的です。
-> 「動かない」ときに何を確認すればいいかを事前に計画しておきます。
-> 実装後は不要な Serial.println() を削除すること。
-
-| No | 確認したい内容 | 挿入する関数 | Serial.println の内容例 |
+| No | 確認したい内容 | 挿入関数 | Serial.println例 |
 |:---|:---|:---|:---|
-| 1 | センサー値が正しく取れているか | `readSensor()` | `Serial.println(sensorValue);` |
-| 2 | 状態遷移が正しく起きているか | `loop()` | `Serial.println(currentState);` |
-| 3 | チャタリング処理が効いているか | `readButton()` | `Serial.println("btn confirmed");` |
-| 4 |  |  |  |
+| 1 | TrackIDやcurrentStateの変化 | changeTrack(),togglePlay(),playNextTrack() | Serial.println(TrackID); Serial.println(currentState); |
+| 2 | 曲データ・配列参照 | playMelody() | Serial.println(音階番号); |
+| 3 | デバウンスの動作 | readButtons() | Serial.println("BTN1 valid"); |
+| 4 | LCD表示更新 | updateLCD() | Serial.println(Display_Text); |
 
 ---
 
-## 5. 単体テスト仕様書（V字モデル：詳細設計 ↔ 単体テスト）
+## 5. 単体テスト仕様書
 
-> ※ 各関数・部品が「単体で正しく動くか」を確認するテスト項目を設計します。
-> 「実際の結果」欄は実装後に記入します。
-
-### 5-1. 入力系テスト
-
-| No | テスト対象の関数 | 入力・操作 | 期待する結果 | 実際の結果 | 合否 |
-|:---|:---|:---|:---|:---|:---|
-| 1 | readButton() | タクトスイッチを1回押す | true が返る | | [ ] |
-| 2 | readButton() | スイッチを素早く2回押す | 1回分だけ true になる | | [ ] |
-| 3 | readSensor() | センサーを正常範囲で使う | 仕様範囲内の値が返る | | [ ] |
-| 4 | readSensor() | センサーを遮蔽・範囲外に向ける | 誤動作しない | | [ ] |
-| 5 | （自分の関数を追加） | | | | [ ] |
-
-### 5-2. 出力系テスト
-
-| No | テスト対象の関数 | 入力・操作 | 期待する結果 | 実際の結果 | 合否 |
-|:---|:---|:---|:---|:---|:---|
-| 1 | updateOutput(0) | state=0（待機中）を渡す | 緑LEDが点滅する | | [ ] |
-| 2 | updateOutput(1) | state=1（動作中）を渡す | 赤LEDが点灯、ブザーが鳴る | | [ ] |
-| 3 | （自分の状態・関数を追加） | | | | [ ] |
-
-### 5-3. タイミング・並行動作テスト
-
-| No | テスト内容 | テスト手順 | 期待する結果 | 実際の結果 | 合否 |
-|:---|:---|:---|:---|:---|:---|
-| 1 | delay()による処理停止がないか | LED点滅中にボタンを押す | ボタン入力が無視されない | | [ ] |
-| 2 | millis()タイマーの周期精度 | 点滅をストップウォッチで確認 | 設計した周期（例:500ms）通りに点滅 | | [ ] |
+（主要テスト項目は前バージョンと同じ、LCD型番=LCM1602Aと明示）
 
 ---
 
-## 6. AIレビュー記録
-
-> グループレビューの前に必ず実施してください。
-
-### Q1: 実装上の問題確認
-
-> 「この詳細設計書に書いた関数と処理フローをもとに Arduino でコードを書きます。バグになりやすい箇所・処理の抜け・型の問題はありますか？」
-
-**AIの回答（要約）：**
-
-**対応した内容：**
-
----
-
-### Q2: 単体テスト仕様の確認
-
-> 「Section 5 の単体テスト仕様書で、各関数の動作が正しく検証できていますか？テストが不足している項目や、境界値テストが必要な箇所を教えてください。」
-
-**AIの回答（要約）：**
-
-**対応した内容：**
+## 6. AIレビュー記録　※LCD型番・I2C仕様・割込み応答の再確認を必ず実施
 
 ---
 
 ## 7. グループレビュー記録
-
-### 7-1. 指摘一覧
 
 | No | 指摘内容 | 指摘者 | 対応 |
 |:---|:---|:---|:---|
@@ -302,11 +220,6 @@
 | 2 |  |  |  |
 | 3 |  |  |  |
 
-### 7-2. レビューを受けて変更した点
-
--
--
-
 ---
 
-*初版: YYYY-MM-DD / AIレビュー: YYYY-MM-DD / グループレビュー後更新: YYYY-MM-DD*
+*初版: 2026-05-25 / AIレビュー: 2026-05-25 / グループレビュー後更新: 2026-05-25*
