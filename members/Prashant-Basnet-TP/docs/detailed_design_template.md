@@ -20,7 +20,7 @@
 ```
 【ピン定義】
   aPin = 7
-  bPin = 8
+  bPin = 9
   cPin = 2
   dPin = 3
   ePin = 4
@@ -29,6 +29,17 @@
   PIN_BUTTON = A0
   PIN_BUZZER = 10
   PIN_CHAOS = A5
+
+      G   F  GND   A    B
+      |   |   |    |    |
+    -------------------------
+    |                       |
+    |   7 segmemt display   |
+    |                       |
+    |                    0  |
+    -------------------------
+      |   |   |    |     |
+      E   D  GND   C     DP-decimal point(0)
 
 【状態管理】
   currentState : int = 0   // 0:待機 1:回転 2:結果
