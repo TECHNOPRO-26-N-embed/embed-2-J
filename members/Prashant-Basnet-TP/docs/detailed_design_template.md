@@ -9,8 +9,8 @@
 | 項目 | basic_design.md から転記 |
 |:--|:--|
 | 作品タイトル | 電子サイコロ |
-| 状態の種類（1-2 状態遷移から） | 初期化、待機、回転、結果 |
-| 実装する関数の数（2-2 関数一覧から） | 6個（setup, loop, rollTheDice, showNumber, one〜six）|
+| 状態の種類（1-2 状態遷移から） | 初期化演出、待機、回転アニメーション、結果表示 |
+| 実装する関数の数（2-2 関数一覧から） | 10個（setup, loop, rollTheDice, showNumber, one, two, three, four, five, six）|
 | グローバル変数の合計バイト数（2-1 SRAM確認から） | 約30B（目安）|
 
 ---
@@ -42,7 +42,8 @@
       E   D  GND   C     DP-decimal point(0)
 
 【状態管理】
-  currentState : int = 0   // 0:待機 1:回転 2:結果
+  明示的なcurrentState変数は使わない
+  loop()の入力判定とrollTheDice()呼び出しで動作フローを制御
 
 【タイマー（millis()用）】
   lastDebounceTime : unsigned long = 0
@@ -51,11 +52,11 @@
   animationInterval : const int = 100
 
 【センサー・入力値】
-  buttonPressed : bool = false
+  buttonPressed : int = 0
 
 【その他のフラグ・カウンター】
   animationStep : int = 0
-  BEEP_FREQUENCY : const int = 3000
+  BEEP_FREQUENCY : const int = 4000
 ```
 
 ---
@@ -82,16 +83,12 @@
 ＜毎ループ実行すること＞
 - 現在時刻を取得: now = millis()
 - ボタン状態をdigitalReadで取得し、チャタリング対策（millisで判定）
-
-＜currentStateが0（待機）のとき＞
-- ボタンが押されたらcurrentState=1にしてrollTheDice()を呼ぶ
-
-＜currentStateが1（回転）のとき＞
-- アニメーションをmillis()で管理し、10回ランダム表示
-- 終了したらcurrentState=2にして結果表示
-
-＜currentStateが2（結果）のとき＞
-- 最終結果を表示し、ボタンが離されたらcurrentState=0に戻す
+- ボタンがLOWかつ buttonPressed==0 かつ (now - lastDebounceTime > debounceDelay) のとき:
+  - buttonPressed = 1
+  - lastDebounceTime = now
+  - rollTheDice() を1回呼ぶ
+- ボタンがHIGHのとき:
+  - buttonPressed = 0（次の押下を受け付ける）
 ```
 
 ---
@@ -101,10 +98,11 @@
 ```
 【処理の流れ】
 1. animationStep=0にリセット
-2. millis()で100msごとにランダムな数字を表示（10回）
-3. 各回で短いブザー音を鳴らす
-4. 最後に本当のサイコロ結果を表示し、長めのブザー音
-5. currentState=2にする
+2. while(animationStep < 10) でアニメーション区間を実行
+3. millis()で100msごとにランダムな数字を表示（10回）
+4. 各回で短いブザー音を鳴らす
+5. 最後に本当のサイコロ結果を表示し、長めのブザー音
+6. 関数終了後、次のボタン入力待ちに戻る
 ```
 
 ---
@@ -144,8 +142,9 @@
 
 ```
 【処理の流れ】
-1. アニメーションやボタン判定は、delay()を使わずmillis()で管理
-2. now - lastAnimationTime >= animationIntervalなら次のアニメーションへ
+1. ボタン判定とアニメーション間隔は millis() で管理
+2. now - lastAnimationTime >= animationInterval なら次のアニメーションへ
+3. 起動演出のみ delay(1000), delay(500) を使用
 ```
 
 ---
@@ -155,7 +154,7 @@
 | No | 確認したい内容 | 挿入する関数 | Serial.println の内容例 |
 |:---|:---|:---|:---|
 | 1 | ボタンが押されたか | loop() | Serial.println("button pressed"); |
-| 2 | 状態遷移 | loop() | Serial.println(currentState); |
+| 2 | デバウンス判定 | loop() | Serial.println(now - lastDebounceTime); |
 | 3 | アニメーション進行 | rollTheDice() | Serial.println(animationStep); |
 
 ---
