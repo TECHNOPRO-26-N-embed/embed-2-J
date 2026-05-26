@@ -1,213 +1,88 @@
+# 詳細設計ドキュメント — 組み込みシステム練習
 
-# Detailed Design Document — Embedded Systems Practice
-
-Prashant Basnet · 2026-05-22 / Group: 2-J
+プラシャント・バスネット · 2026-05-22 / グループ: 2-J
 
 ---
 
-## 0. Connection to Basic Design
+## 0. 基本設計とのつながり
 
-| Item | From basic_design.md |
+| 項目 | basic_design.md から |
 |:--------------------------|:-----------------------------------------------|
-| Project Title             | Electronic Dice                                |
-| State Types (from 1-2)    | Startup Animation, Standby, Rolling, Result    |
-| Number of Functions (2-2) | 10 (setup, loop, rollTheDice, showNumber, one, two, three, four, five, six) |
-| Global Variable Size (2-1)| ~30B (estimate)                               |
+| プロジェクト名             | 電子サイコロ                                |
+| 状態の種類 (1-2より)       | スタートアニメーション、待機、サイコロを振る、結果 |
+| 関数の数 (2-2より)         | 10 (setup, loop, rollTheDice, showNumber, one, two, three, four, five, six) |
+| グローバル変数のサイズ (2-1)| 約30バイト (推定)                               |
 
 ---
 
-## 1. Global Variables & Constants Design
+## 1. グローバル変数と定数の設計
 
 ```c
-// Pin Definitions
+// ピンの定義
 // aPin = 7, bPin = 9, cPin = 2, dPin = 3, ePin = 4, fPin = 6, gPin = 5
 // PIN_BUTTON = A0, PIN_BUZZER = 10, PIN_CHAOS = A5
 
-// 7-segment display wiring diagram (see hardware doc)
+// 7セグメントディスプレイの配線図 (ハードウェアドキュメント参照)
 
-// State Management
-// No explicit currentState variable; flow is controlled by input checks in loop() and rollTheDice() calls
+// 状態管理
+// currentState 変数は使わず、loop() と rollTheDice() 内の入力チェックで制御
 
-// Timers (for millis())
+// タイマー (millis() 用)
 // lastDebounceTime: unsigned long = 0
 // debounceDelay: const int = 200
 // lastAnimationTime: unsigned long = 0
 // animationInterval: const int = 100
 
-// Input Values
+// 入力値
 // buttonPressed: int = 0
 
-// Other Flags/Counters
+// その他のフラグやカウンター
 // animationStep: int = 0
-// BEEP_FREQUENCY: const int = 4000
 ```
 
 ---
 
-## 2. Function Design Details
+## 2. 関数の設計詳細
 
-### setup() — Initialization
+### setup() — 初期化
 
 ```c
-// Summary: Initializes pins, random seed, and runs startup animation
-// Steps:
-// 1. Set all 7-segment LED pins to OUTPUT
-// 2. Set button pin to INPUT_PULLUP
-// 3. Set buzzer pin to OUTPUT
-// 4. Initialize random seed with analogRead(PIN_CHAOS)
-// 5. Run startup animation (show 1–6 in order + buzzer)
+// 概要: ピンの設定、乱数の初期化、スタートアニメーションの実行
+// 手順:
+// 1. 7セグメントLEDピンをすべて OUTPUT に設定
+// 2. ボタンピンを INPUT_PULLUP に設定
+// 3. ブザーピンを OUTPUT に設定
+// 4. analogRead(PIN_CHAOS) で乱数の種を初期化
+// 5. スタートアニメーションを実行 (1〜6を順番に表示 + ブザー音)
 ```
 
 ---
 
-### loop() — Main Loop
+### loop() — メインループ
 
 ```c
-// Summary: Main program loop, handles button input, debounce, and dice rolling
-// Steps:
-// 1. Check button state (with debounce)
-// 2. If pressed, call rollTheDice()
-// 3. Otherwise, remain in standby
+// 概要: メインプログラムループ。ボタン入力、チャタリング防止、サイコロを振る処理を行う
+// 手順:
+// 1. ボタンの状態を確認 (チャタリング防止付き)
+// 2. 押された場合、rollTheDice() を呼び出す
+// 3. 押されていない場合、待機状態を維持
 ```
 
 ---
 
-### rollTheDice() — Dice Rolling Animation
+### rollTheDice() — サイコロアニメーション
 
 ```c
-// Summary: Animates dice roll, then displays result
-// Steps:
-// 1. Animate 7-segment display (1–6 cycling)
-// 2. Play buzzer sound
-// 3. After animation, generate random number (1–6)
-// 4. Show result on display
+// 概要: サイコロのアニメーションを実行し、結果を表示
+// 手順:
+// 1. 7セグメントディスプレイでアニメーションを実行 (1〜6を順番に表示)
+// 2. 最終的な数字を表示
+// 3. ブザー音を鳴らす
 ```
 
 ---
 
-### showNumber(x) — Display Number
 
-```c
-// Summary: Lights up segments to display number x (1–6)
-// Input: x (int, 1–6)
-// Output: Updates 7-segment display
-```
-
----
-
-### one(), two(), ..., six() — Segment Patterns
-
-```c
-// Summary: Set segment pins for each number
-// Called by showNumber(x)
-```
-
----
-
-## 3. Error Handling & Edge Cases
-
-- If the button is held down, only one roll is triggered per press (debounce logic)
-- If hardware fails (e.g., button stuck), system ignores further input until released
-
----
-
-## 4. Traceability Matrix (Requirement ↔ Function)
-
-| Requirement                | Function(s)                |
-|:---------------------------|:---------------------------|
-| Random dice (1–6)          | rollTheDice, showNumber    |
-| Debounce                   | loop, debounce logic       |
-| Startup animation          | setup, showNumber, buzzer  |
-| Buzzer sound               | setup, rollTheDice         |
-| Standby state              | loop                       |
-
----
-
-## 5. Test Items
-
-- Confirm dice shows 1–6 randomly
-- Confirm debounce prevents double input
-- Confirm startup animation and buzzer
-- Confirm only one roll per button press
-
----
-
-## 6. Review Record
-
-| Reviewer | Date       | Comments                |
-|:---------|:-----------|:------------------------|
-| Teacher  | 2026-05-25 | Formatting and comments improved |
-
----
-
-```
-【処理の流れ】
-＜毎ループ実行すること＞
-- 現在時刻を取得: now = millis()
-- ボタン状態をdigitalReadで取得し、チャタリング対策（millisで判定）
-- ボタンがLOWかつ buttonPressed==0 かつ (now - lastDebounceTime > debounceDelay) のとき:
-  - buttonPressed = 1
-  - lastDebounceTime = now
-  - rollTheDice() を1回呼ぶ
-- ボタンがHIGHのとき:
-  - buttonPressed = 0（次の押下を受け付ける）
-```
-
----
-
-### rollTheDice() — サイコロ動作処理
-
-```
-【処理の流れ】
-1. animationStep=0にリセット
-2. while(animationStep < 10) でアニメーション区間を実行（実行中は処理がブロッキングされる）
-3. millis()で100msごとにランダムな数字を表示（10回）
-4. 各回で短いブザー音を鳴らす
-5. 最後に本当のサイコロ結果を表示し、長めのブザー音
-6. 関数終了後、次のボタン入力待ちに戻る
-```
-
----
-
-### showNumber(x) — 数字を7セグLEDに表示
-
-```
-【処理の流れ】
-1. xの値に応じてone()〜six()を呼ぶ
-```
-
----
-
-### one()〜six() — 各数字の7セグLED制御
-
-```
-【処理の流れ】
-1. 各セグメントピンをON/OFFで制御し、数字を表示
-```
-
----
-
-## 3. 重要ロジックの詳細設計
-
-### 3-1. チャタリング防止（デバウンス処理）
-
-```
-【処理の流れ】
-1. ボタンが押されたら、lastDebounceTimeと現在時刻を比較
-2. 一定時間（debounceDelay=200ms）経過していれば有効な押下とする
-3. ボタンが離されるまで次の入力を受け付けない
-```
-
----
-
-### 3-2. millis() を使ったタイマー管理
-
-```
-【処理の流れ】
-1. ボタン判定とアニメーション間隔は millis() で管理
-2. now - lastAnimationTime >= animationInterval なら次のアニメーションへ
-3. 起動演出のみ delay(1000), delay(500) を使用
-```
 
 ---
 
@@ -219,6 +94,75 @@ Prashant Basnet · 2026-05-22 / Group: 2-J
 | 2 | デバウンス判定 | loop() | Serial.println(now - lastDebounceTime); |
 | 3 | アニメーション進行 | rollTheDice() | Serial.println(animationStep); |
 
+
+## 3. 重要ロジックの詳細設計
+
+### 3-1. チャタリング防止（デバウンス処理）
+
+```c
+// ボタンが押されたら、lastDebounceTimeと現在時刻を比較
+// 一定時間（debounceDelay=200ms）経過していれば有効な押下とする
+// ボタンが離されるまで次の入力を受け付けない
+```
+
+### 3-2. millis() を使ったタイマー管理
+
+```c
+// ボタン判定とアニメーション間隔は millis() で管理
+// now - lastAnimationTime >= animationInterval なら次のアニメーションへ
+// 起動演出のみ delay(1000), delay(500) を使用
+```
+## . 回路 (Circuit Design)
+
+### 回路の説明
+- **7セグメントディスプレイ**: 
+      g     f   GND    a       b
+      |     |    |     |       |
+     ---------------------------
+    |     -------a--------      |
+    |   f|               |b     |
+    |    |               |      |
+    |     --------g-------      |     <--  7セグメントディスプレイ
+    |   e|               |c     |
+    |    |               |      |
+    |     --------d------- 〇 　|
+     ---------------------------
+      |     |    |    |      |
+      e     d   GND   c      dp(decimalpoint)(〇点の光り)
+
+- **7セグメントディスプレイ**: 
+  - ピン 2, 3, 4, 5, 6, 7, 9 に接続。
+  - 各ピンはディスプレイのライト (a, b, c, d, e, f, g) に対応。
+  - 数字を表示するために、必要なライトを ON/OFF します。
+
+- **ボタン**: 
+  - ピン A0 に接続。
+  - プルアップ抵抗を使い、押されていないときは HIGH 状態。
+  - 押されると LOW 状態になります。
+
+- **ブザー**: 
+  - ピン 10 に接続。
+  - tone() 関数で音を鳴らします。
+  - サイコロのアニメーション中や結果表示時に音を出します。
+
+- **乱数用ピン**: 
+  - アナログピン A5 を使用。
+  - analogRead() で乱数の種を作ります。
+  - サイコロの結果をランダムにするために使います。
+
+### 配線図
+- 詳しい配線図はハードウェアドキュメントを見てください。
+- 配線例:
+  - 7セグメントディスプレイの a ライト → ピン 7
+  - ボタン → ピン A0
+  - ブザー → ピン 10
+  - 乱数用ピン → ピン A5
+- 配線ミスを防ぐため、接続後に動作確認をしてください。
+
+### 電源
+- Arduino は USB または外部 5V 電源で動きます。
+- 安定した電源を使ってください。
+- 電源が不安定だと、動作が止まることがあります。
 ---
 
 ## 5. 単体テスト仕様書
@@ -232,63 +176,12 @@ Prashant Basnet · 2026-05-22 / Group: 2-J
 | 3 | loop() | 前回押下から199msで再押下 | 再実行されない（デバウンスで無効） | | [ ] |
 | 4 | loop() | 前回押下から200ms以上で再押下 | 再実行される | | [ ] |
 
-### 5-2. 出力系テスト
+### 5-2. 実機テスト結果（2026-05-26）
 
-| No | テスト対象の関数 | 入力・操作 | 期待する結果 | 実際の結果 | 合否 |
-|:---|:---|:---|:---|:---|:---|
-| 1 | showNumber() | 1〜6を表示 | 7セグLEDが正しく点灯 | | [ ] |
-| 2 | rollTheDice() | サイコロ動作を実行 | ブザー音が鳴動する | | [ ] |
+- 電源を入れると、7セグLEDが1から6まで順番に光って、音も鳴った。
+- ボタンを押すと、LEDの数字とシリアルモニターの数字が同じように表示された。
+- 表示中にボタンを2回押しても、2回目は無視された。
+- 数字の表示が終わったあとに、次のボタン入力を受け付けた。
 
-### 5-3. タイミング・並行動作テスト
+判定: 期待どおりに動作した。
 
-| No | テスト内容 | テスト手順 | 期待する結果 | 実際の結果 | 合否 |
-|:---|:---|:---|:---|:---|:---|
-| 1 | アニメーション中のボタン反応 | アニメーション中にボタンを押す | 追加実行されない | | [ ] |
-| 2 | millis()タイマー精度 | アニメーション間隔を測定 | 設計通りの間隔 | | [ ] |
-
----
-
-## 6. AIレビュー記録
-
-### Q1: 実装上の問題確認
-
-**AIの回答（要約）：**
-- ピン定義および変数型に重大な問題はありません。
-- millis() によるタイミング管理により応答性は確保されています。
-- チャタリング対策は妥当です。
-
-**対応した内容：**
-- 変数名・型・ピン番号を再確認
-- millis()で全体のタイミングを管理
-
----
-
-### Q2: 単体テスト仕様の確認
-
-**AIの回答（要約）：**
-- 各関数に対するテスト観点は概ね網羅されています。
-- 境界値（1,6）および連打時挙動の確認項目が含まれています。
-
-**対応した内容：**
-- テスト項目を追加し、網羅性を再確認
-
----
-
-## 7. グループレビュー記録
-
-### 7-1. 指摘一覧
-
-| No | 指摘内容 | 指摘者 | 対応 |
-|:---|:---|:---|:---|
-| 1 | 状態遷移記述が実装コードと不一致（currentState未使用） | グループメンバー | currentState記述を削除し、入力判定フローへ修正 |
-| 2 | 定数値の不一致（ブザー周波数） | グループメンバー | BEEP_FREQUENCYを4000に統一 |
-| 3 | ボタン状態型の記述が曖昧 | グループメンバー | buttonPressedをintとして明記 |
-
-### 7-2. レビューを受けて変更した点
-
-- currentStateベース記述を削除し、実装コードの入力判定フローに合わせて更新
-- 定数・型（BEEP_FREQUENCY=4000、buttonPressed=int）を実装コード準拠に修正
-
----
-
-*初版: 2026-05-22 / AIレビュー: 2026-05-22 / グループレビュー後更新: 2026-05-22*
