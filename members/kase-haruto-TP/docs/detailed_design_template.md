@@ -1,240 +1,122 @@
+
 # 詳細設計書 — 組込み開発実習
 
-<!-- 作成者: 加瀬 暖人 / 日付: 2026-05-23 / グループ: 2-j -->
+<!-- 作成者: 加瀬 暖人 / 日付: 2026-05-26 / グループ: 2-j -->
 
-> **このドキュメントの目的**
-> 基本設計書（basic_design.md）で「どのような構造で作るか」を決めました。
-> この詳細設計書では「各処理を具体的にどう実装するか」を決めます。
-> 書き終わったとき、コードの骨格がほぼ完成している状態を目指してください。
+## 1. 目的と位置づけ
+本書は「プッシュスイッチ連動型警報ガジェット」の詳細設計を記述する。基本設計書の要件・構成をもとに、各機能・処理・テスト・エラー対応まで具体的に落とし込む。
 
 ---
 
-## 0. 基本設計書との接続確認
-
-| 項目                                 | basic_design.md から転記                    |
-|:--------------------------------------|:-------------------------------------------|
-| 作品タイトル                         | プッシュスイッチ連動型警報ガジェット        |
-| 状態の種類（1-2 状態遷移から）       | 0:初期化, 1:待機, 2:警報発報               |
-| 実装する関数の数（2-2 関数一覧から） | 6個（setup, loop, readButton, setBuzzer, setLED, checkLongPress） |
-| グローバル変数の合計バイト数         | 約17B                                       |
-
----
-
-## 1. グローバル変数・定数の設計
-
-```
-【ピン定義】
-  PIN_BUTTON    = 2    // プッシュスイッチ（INPUT_PULLUP）
-  PIN_BUZZER    = 3    // パッシブブザー
-  PIN_LED       = 4    // LED（任意）
-
-【状態管理】
-  currentState  : int = 1     // 1:待機 2:警報発報 0:初期化時
-
-【タイマー（millis() 用）】
-  lastDebounceTime : unsigned long = 0    // デバウンス用
-  debounceDelay    : const int = 50       // チャタリング判定50ms
-  holdStartTime    : unsigned long = 0    // 長押し開始時刻用
-  longPressTime    : const int = 2000     // 長押し判定2秒
-  alarmTimeout     : const int = 10000    // 自動停止10秒
-  alarmStartTime   : unsigned long = 0    // 警報開始時刻
-
-【センサー・入力値】
-  buttonState         : bool = HIGH
-  lastButtonState     : bool = HIGH
-
-【その他のフラグ・カウンター】
-  isLongPressed         : bool = false // 長押しフラグ
-```
+## 2. グローバル変数・定数設計
+| 名前             | 用途・意味                       | 型             | 初期値・備考           |
+|:----------------|:-------------------------------|:---------------|:----------------------|
+| PIN_BUTTON      | プッシュスイッチ入力            | const int      | 2                    |
+| PIN_BUZZER      | ブザー出力                      | const int      | 3                    |
+| PIN_LED         | LED出力                        | const int      | 4                    |
+| buttonState     | ボタン現在状態(LOW=押下)        | bool           | HIGH                 |
+| lastButtonState | 前回のボタン状態                | bool           | HIGH                 |
+| lastDebounceTime| 最終変化検出時刻                | unsigned long  | 0                    |
+| debounceDelay   | チャタリング許容時間[ms]        | const int      | 50                   |
+| alarmState      | システム状態 enum:WAIT/ON       | int            | 0/WAIT               |
+| ledState        | LED点灯状態                     | bool           | LOW                  |
+| buzzerFreq      | ブザー出力周波数                | int            | 523                  |
+| holdStartTime   | 長押し判定開始時刻              | unsigned long  | 0                    |
 
 ---
 
-## 2. 各関数の詳細設計
+## 3. 関数詳細設計
+
+### 3-1. setup()
+- PIN_BUTTONをINPUT_PULLUPで初期化
+- PIN_BUZZER, PIN_LEDをOUTPUTで初期化
+- 変数・タイマー初期化（buttonState, lastButtonState, alarmState, holdStartTime等）
+- Serial.begin(9600)でデバッグ出力有効化
+- 起動確認としてLEDを1秒点灯
+
+### 3-2. loop()
+- 毎ループでmillis()取得、readButton()でボタン状態取得
+- checkLongPress()で長押し判定
+- 状態に応じてsetBuzzer/setLED制御
+- ボタン解除や自動停止で状態遷移
+
+### 3-3. readButton()
+- digitalRead(PIN_BUTTON)で値取得
+- 前回値と異なればlastDebounceTime更新
+- (現在時刻-lastDebounceTime)>debounceDelayで確定
+- 状態変化時のみtrue返す
+
+### 3-4. setBuzzer(onoff)
+- onoff=trueでtone(PIN_BUZZER, buzzerFreq)
+- onoff=falseでnoTone(PIN_BUZZER)
+
+### 3-5. setLED(onoff)
+- onoff=trueでdigitalWrite(PIN_LED, HIGH)
+- onoff=falseでdigitalWrite(PIN_LED, LOW)
+
+### 3-6. checkLongPress()
+- ボタン押下時holdStartTime記録
+- 押し続けていれば(現在時刻-holdStartTime)>=2000msでtrue
+- 離したらリセット
 
 ---
 
-### `setup()` — 初期化処理
-
-```
-【処理の流れ】
-1. PIN_BUTTON を INPUT_PULLUP で初期化
-2. PIN_BUZZER, PIN_LED を OUTPUT で初期化
-3. 変数・タイマーを初期化
-   - currentState = 1（待機）
-   - isLongPressed = false
-4. Serial.begin(9600) でデバッグ出力有効化
-5. 任意: 起動確認としてLEDを1秒点灯
-```
+## 4. 回路構成・配線図
+- D2 — [タクトスイッチ] — GND（INPUT_PULLUP利用）
+- D3 — [パッシブブザー +] [ブザー -] — GND
+- D4 — [220Ω] — [LEDアノード] カソード — GND
 
 ---
 
-### `loop()` — メインループ
-
-```
-【処理の流れ】
-
-＜毎ループ実行すること＞
-- 現在時刻を取得: now = millis()
-- ボタン状態をreadButton()で取得（チャタリング対策付き）
-- 長押し状態チェック（checkLongPress()）、必要ならisLongPressedを更新
-
-＜currentState が 1（待機）のとき＞
-- ボタンが押された＆長押し検出時、または通常押下で警報発報へ遷移
-- currentState = 2　警報発報へ進む
-- alarmStartTime = now に記録
-
-＜currentState が 2（警報発報）のとき＞
-- setBuzzer(true)、setLED(true)でON
-- ボタン解除でcurrentState = 1に遷移（警報停止）
-- もしくは自動停止（now - alarmStartTime > alarmTimeout）でも停止
-- setBuzzer(false), setLED(false)でOFFに戻す
-
-＜currentState が 0（初期化）のとき＞
-- setup()後に1（待機）へ移行、普段状態管理には登場しない
-```
+## 5. 異常系・エラー処理方針
+| 異常ケース   | 発生条件             | 検知方法                     | 対応方針                         |
+|:------------|:--------------------|:-----------------------------|:---------------------------------|
+| チャタリング| ボタン押下時         | 前回変化時から50ms未満        | debounceで入力無視               |
+| ノイズ      | アナログ入力揺れ     | 閾値バッファ設定              | バッファ以内変化は保持           |
+| ブザー異常   | tone/noTone効かない  | 実行後に出力状態確認          | 電気的故障時は再起動促進         |
+| LED断線     | LED点かない          | 実出力確認                    | 部品交換等物理修理               |
 
 ---
 
-### `readButton()` — チャタリング済みボタン入力取得
-
-**対応：基本設計書2-2「ボタン入力検知」**
-
-**引数：** なし  
-**戻り値：** bool（確定入力の有無）
-
-```
-【処理の流れ】
-1. ボタン値をdigitalRead(PIN_BUTTON)で取得
-2. 現在値と前回値が違えば、lastDebounceTime = 現在時刻
-3. (現在時刻 - lastDebounceTime) > debounceDelay の場合のみ
-   - ボタン値を確定（buttonStateへ反映）、それ以外はスルー
-4. 変更が確定した場合のみtrue返す
-```
-【エラー・異常ケース】
-- 機械的故障時は連続値となるが、電気的ノイズはこのロジックで防げる
+## 6. 要件⇔設計対応表（トレーサビリティ）
+| No | 必須機能        | 対応SW設計(関数等) | 対応HW設計(ピン等) | 結合テストNo |
+|:--|:----------------|:------------------|:------------------|:------------|
+| 1 | ボタン検知      | readButton()      | D2                | #1          |
+| 2 | ブザー出力      | setBuzzer()       | D3                | #2          |
+| 3 | ボタン解除で停止| readButton(),setBuzzer()| D2, D3        | #3          |
+| 4 | 常時監視        | loop()            |                   | #4          |
+| 5 | INPUT_PULLUP    | setup(), readButton()| D2              | #5          |
+| 6 | LED通知        | setLED()          | D4                | #6          |
+| 7 | 長押し検知      | checkLongPress()  | D2                | #7          |
+| 8 | 自動停止       | checkTimeout()    | D2, D3, D4        | #8          |
 
 ---
 
-### `setBuzzer(onoff)` — ブザー出力制御
-
-**対応：基本設計書2-2「ブザー鳴動」**
-
-**引数：** onoff（bool）: 鳴らすかどうか  
-**戻り値：** void
-
-```
-【処理の流れ】
-1. onoff = true なら tone(PIN_BUZZER, 523Hz)で鳴動
-2. onoff = false なら noTone(PIN_BUZZER)で停止
-```
-【エラー・異常ケース】
-- ブザー不良時は物理交換
+## 7. 結合・単体テスト計画
+| No | テスト対象                        | テスト手順                           | 期待する結果             | 実際の結果 | 合否 |
+|:--|:----------------------------------|:-------------------------------------|:------------------------|:----------|:----|
+| 1 | ボタン検知                        | ボタンを押す                         | 状態遷移・出力反応する   |            | [ ] |
+| 2 | ブザー鳴動                        | ボタンを押し続ける                   | ブザーが鳴る             |            | [ ] |
+| 3 | ブザー停止                        | ボタン離す                           | ブザー停止               |            | [ ] |
+| 4 | LED通知                           | ボタン押下でLED点灯                  | LEDが点灯                |            | [ ] |
+| 5 | 長押し検知                        | ボタン長押しする                     | 長押しでのみ鳴動          |            | [ ] |
+| 6 | 自動停止                          | 押しっぱなし10秒                     | 自動で鳴動停止            |            | [ ] |
+| 7 | 異常系：チャタリング              | 1秒間に5回連打                       | 1回しか反応しない         |            | [ ] |
 
 ---
 
-### `setLED(onoff)` — LED点灯制御（任意）
-
-**対応：基本設計書2-2「LED通知」**
-
-**引数：** onoff（bool）: 点灯/消灯  
-**戻り値：** void
-
-```
-【処理の流れ】
-1. onoff = true なら digitalWrite(PIN_LED, HIGH)
-2. onoff = false なら digitalWrite(PIN_LED, LOW)
-```
----
-
-### `checkLongPress()` — 長押し判定（追加機能）
-
-**対応：基本設計書2-2「長押しのみ鳴動」**
-
-**引数：** なし  
-**戻り値：** bool（長押しならtrue）
-
-```
-【処理の流れ】
-1. ボタン押下時、holdStartTimeに押下時刻を記録
-2. ボタン押され続けていたら（現在時刻 - holdStartTime）>= longPressTime でtrue返す
-3. 離していたらisLongPressed=false、holdStartTimeリセット
-```
----
-
-## 3. 重要ロジックの詳細設計
-
-### 3-1. チャタリング防止（デバウンス処理）
-
-```
-1. ボタン値 = digitalRead(PIN_BUTTON)
-2. 前回値と異なれば lastDebounceTime = 現在時刻
-3. (現在時刻 - lastDebounceTime) >= debounceDelay なら
-   - ボタン状態を確定（buttonState）として採用
-   - 状態が変わったら押下・離された判定も可能
-   - lastButtonStateも同期
-```
+## 8. デバッグ出力計画
+| No | 確認内容                 | 挿入関数   | Serial.println例         |
+|:---|:------------------------|:-----------|:------------------------|
+| 1  | ボタン状態と確定値       | readButton | "raw:1 confirm:0"       |
+| 2  | 状態遷移（警報/停止）    | loop       | "State:2→警報,1→待機"  |
+| 3  | 長押し検出               | checkLongPress| "longpress:true"    |
+| 4  | タイムアウト自動停止     | loop       | "警報:timeout自動停止"  |
 
 ---
 
-### 3-2. millis() を使ったタイマー管理
-
-```
-警報状態発報中（currentState == 2）で
-1. now = millis()
-2. now - alarmStartTime >= alarmTimeout になったら、警報自動停止
-3. ボタン押しっぱなし時はcheckLongPress()で判定
-4. delay()は使わず、どの処理も並行で動く
-```
-
----
-
-## 4. デバッグ出力計画
-
-| No | 確認したい内容                 | 挿入する関数   | Serial.println の内容例         |
-|:---|:------------------------------|:---------------|:-------------------------------|
-| 1  | ボタン状態と確定値             | readButton()   | "raw:1 confirm:0"               |
-| 2  | 状態遷移（警報発報/停止）      | loop()         | "State:2 →警報, State:1→待機"   |
-| 3  | 長押し検出                     | checkLongPress()| "longpress:true"                |
-| 4  | タイムアウトで自動停止したか   | loop()         | "警報: timeout自動停止"          |
-
----
-
-## 5. 単体テスト仕様書（V字モデル：詳細設計 ↔ 単体テスト）
-
-### 5-1. 入力系テスト
-
-| No | テスト対象の関数 | 入力・操作             | 期待する結果                 | 実際の結果 | 合否 |
-|:---|:----------------|:----------------------|:----------------------------|:----------|:----|
-| 1  | readButton()    | ボタン1回長押し       | trueが1回返る                |           | [ ] |
-| 2  | readButton()    | スイッチ連打（0.1秒毎）| チャタリングせず押下だけ返る |           | [ ] |
-| 3  | checkLongPress()| 2秒以上押し続ける     | trueが返る                   |           | [ ] |
-| 4  |                 |                      |                              |           | [ ] |
-
-### 5-2. 出力系テスト
-
-| No | テスト対象の関数 | 入力・操作                | 期待する結果             | 実際の結果 | 合否 |
-|:---|:----------------|:-------------------------|:------------------------|:----------|:----|
-| 1  | setBuzzer()     | trueを渡す               | ブザーが鳴る             |           | [ ] |
-| 2  | setBuzzer()     | falseを渡す              | ブザーが止まる           |           | [ ] |
-| 3  | setLED()        | trueを渡す               | LEDが点灯                |           | [ ] |
-| 4  | setLED()        | falseを渡す              | LEDが消灯                |           | [ ] |
-
-### 5-3. タイミング・並行動作テスト
-
-| No | テスト内容     | テスト手順    | 期待する結果                  | 実際の結果 | 合否 |
-|:---|:--------------|:-------------|:-----------------------------|:----------|:----|
-| 1  | delay未使用   | 警報発報中もボタン操作 | 応答遅れなしすぐ停止・再発報  |           | [ ] |
-| 2  | 自動停止      | 警報後10秒観察       | 10秒後に自動で停止する        |           | [ ] |
-
----
-
-## 6. AIレビュー記録
-
-### Q1: 実装上の問題確認
-
-> この詳細設計書に書いた関数と処理フローをもとに Arduino でコードを書きます。バグになりやすい箇所・処理の抜け・型の問題はありますか？
-
-**AIの回答（要約）：**
+## 9. AIレビュー記録
+Q1: 設計・実装上の注意点
 - チャタリング対応・タイマーとも正しいが、ボタン長押し判定のリセットタイミングに注意。
 - ブザー・LEDのピン配置も競合なし。
 - 変数の型・初期値とも適切、誤動作時も自己回復設計。
