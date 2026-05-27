@@ -12,6 +12,7 @@ detailed_design_template# 詳細設計書 — 組込み開発実習
 | 待機状態 / ブザー動作中 | |
 | 実装する関数の数　 | 　7個 |
 | グローバル変数の合計バイト数 | 約11B |
+| 状態管理のenum化 | 推奨（例：enum State { WAIT, ALARM }） |
 
 ---
 
@@ -54,10 +55,10 @@ buzzerToggle : bool = false
 
 ```
 【処理の流れ】
-1. ボタンピンを INPUT_PULLUP に設定する
-- pinMode(PIN_BUTTON, INPUT_PULLUP)
 
-22. ブザーピンを OUTPUT に設定する
+1. ボタンピンを INPUT_PULLUP に設定する
+   - pinMode(PIN_BUTTON, INPUT_PULLUP)
+2. ブザーピンを OUTPUT に設定する
    - pinMode(PIN_BUZZER, OUTPUT)
 
 3. ブザーを停止状態にする
@@ -145,10 +146,8 @@ buzzerToggle : bool = false
 
 ### `関数名()` 
 
-**basic_design.md 2-2 との対応：** （基本設計書の関数一覧の説明を転記）
-
-**引数：** :なし
-**戻り値：** bool
+**引数：** なし
+**戻り値：** int（HIGH/LOW）
 ```
 【処理の流れ】
 
@@ -365,6 +364,7 @@ delay() を使わずに一定周期処理を行う。
 | 1 | readButton() | ボタンを1回押す | true を返す | [] |
 | 2 | readButton() | 素早く連打する | 誤入力しない | [] |
 | 3 | readSensor() | ボタンを離す | false を返す | [] |
+| 3 | readButton() | ボタンを離す | HIGH を返す | [] |
 
 ### 5-2. 出力系テスト
 
@@ -373,6 +373,7 @@ delay() を使わずに一定周期処理を行う。
 | 1 | controlBuzzer() | buttonState=true | ブザーON | [] |
 | 2 | controlBuzzer() | buttonState=false | ブザーOFF | [] |
 | 3 | changePattern() | 長押し状態 | 一定間隔でON/OFF | [] |
+| 4 | controlBuzzer() | ボタン未接続 | ブザーOFF | [] |
 
 ### 5-3. タイミング・並行動作テスト
 
@@ -380,6 +381,7 @@ delay() を使わずに一定周期処理を行う。
 |:---|:---|:---|:---|:---|:---|
 | 1 | delay停止確認 | ボタン連打 | 応答が止まらない |  | [] |
 | 2 | millis精度確認 | 500ms周期確認 | 正常周期動作 | [] |
+| 3 | 長押し判定 | ボタンを2秒以上押す | 長押しとして認識される | [] |
 
 ---
 
